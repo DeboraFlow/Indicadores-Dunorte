@@ -10,7 +10,7 @@ st.image("logo_alfa-protecao-veicular_Bs4CuH.png", width=150)
 st.markdown("<h1 style='margin-top: -10px;'>📊 Painel Comercial - Dunorte</h1>", unsafe_allow_html=True)
 
 # === IMPORTAÇÃO DAS BASES ===
-df = pd.read_csv("vendas.csv", encoding="latin1", sep=";")
+df = pd.read_csv("VENDAS.csv", encoding="latin1", sep=";")
 df.columns = df.columns.str.strip()
 
 df.rename(columns={
