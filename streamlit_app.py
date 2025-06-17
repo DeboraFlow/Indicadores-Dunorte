@@ -9,7 +9,7 @@ st.title("📊 Painel Comercial - Dunorte")
 
 # 🔁 Lê o CSV direto do GitHub (sem file uploader)
 url = "https://raw.githubusercontent.com/DeboraFlow/Indicadores-Dunorte/main/VENDAS.csv"
-df = pd.read_csv(url, encoding="latin1", sep=";", header=1)
+df = pd.read_csv(url, encoding="latin1", sep=";", header=0)
 df.columns = df.columns.str.strip()
 
 df.rename(columns={
