@@ -2,15 +2,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Painel Comercial", layout="wide")
-
-# Logo e título
 st.image("logo_alfa-protecao-veicular_Bs4CuH.png", width=150)
 st.markdown("<h1 style='margin-top: -10px;'>📊 Painel Comercial - Dunorte</h1>", unsafe_allow_html=True)
 
-# === LEITURA DA BASE (SEM UPLOAD) ===
+# === Referência de Data ===
+ontem = datetime.now() - timedelta(days=1)
+referencia = f"Referência dos dados: de 01/06 até {ontem.strftime('%d/%m')}"
+st.markdown(f"<p style='color: gray; margin-top: -10px;'>{referencia}</p>", unsafe_allow_html=True)
+
+# === Leitura da Base de Vendas ===
 df = pd.read_csv("VENDAS.csv", encoding="latin1", sep=";", header=0)
 df.columns = df.columns.str.strip()
 
@@ -34,16 +37,54 @@ df['ValorVenda'] = (
     .astype(float)
 )
 
-# === FILTROS INTERATIVOS ===
+# === Filtros Interativos ===
 meses_disponiveis = sorted(df['Mes'].astype(str).unique())
 mes_selecionado = st.selectbox("📅 Selecione o mês", meses_disponiveis, index=len(meses_disponiveis) - 1)
 gestores_disponiveis = ['Todos'] + sorted(df['Gestor'].dropna().unique().tolist())
 gestor_selecionado = st.selectbox("🧑‍💼 Filtrar por Gestor", gestores_disponiveis)
 
+# Aplicar filtros
 df_filtrado = df[df['Mes'].astype(str) == mes_selecionado]
 if gestor_selecionado != 'Todos':
     df_filtrado = df_filtrado[df_filtrado['Gestor'] == gestor_selecionado]
 
+# === Leitura da Base de Cotações ===
+cotacoes = pd.read_excel("COTACOES.xlsx", header=0)
+cotacoes.rename(columns=lambda x: x.strip(), inplace=True)
+cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], errors='coerce')
+cotacoes = cotacoes.dropna(subset=['Data'])
+cotacoes = cotacoes[cotacoes['Data'] <= ontem]
+
+# === Agrupamento por Cooperativa ===
+agrupado = cotacoes.groupby('Cooperativa').agg(
+    TotalCotacoes=('Situacao', 'count'),
+    VendasConcretizadas=('Situacao', lambda x: (x == 'Venda Concretizada').sum())
+).reset_index()
+
+agrupado['Conversao (%)'] = (agrupado['VendasConcretizadas'] / agrupado['TotalCotacoes'] * 100).round(1)
+agrupado['Conversao (%)'] = agrupado['Conversao (%)'].fillna(0)
+
+# === Seção de Conversão ===
+st.markdown("## 📩 Conversão de Cotações")
+col1, col2, col3 = st.columns(3)
+total_cotacoes = agrupado['TotalCotacoes'].sum()
+vendas_concretizadas = agrupado['VendasConcretizadas'].sum()
+conversao_geral = (vendas_concretizadas / total_cotacoes * 100) if total_cotacoes > 0 else 0
+
+with col1:
+    st.metric("Total de Cotações", f"{total_cotacoes}")
+with col2:
+    st.metric("Vendas Concretizadas", f"{vendas_concretizadas}")
+with col3:
+    st.metric("Conversão Geral", f"{conversao_geral:.1f}%")
+
+st.dataframe(agrupado.style.format({
+    'TotalCotacoes': '{:.0f}',
+    'VendasConcretizadas': '{:.0f}',
+    'Conversao (%)': '{:.1f}%'
+}), use_container_width=True)
+
+# === Continuação: Painel Comercial como antes ===
 mes_atual = pd.Period(mes_selecionado)
 meses_validos = sorted(df['Mes'].unique())
 mes_anterior = meses_validos[meses_validos.index(mes_atual) - 1] if mes_atual in meses_validos and meses_validos.index(mes_atual) > 0 else None
@@ -71,7 +112,6 @@ if not df_filtrado.empty and mes_anterior is not None:
     base['Status'] = base['Variação (%)'].apply(lambda x: "🟢" if x >= 0 else "🔴")
     base = base.sort_values(by='Projecao', ascending=False)
 
-    # === CARTÕES ===
     total_vendas = len(vendas_atual)
     projecao_geral = int(total_vendas * fator_projecao)
     soma_faturamento = vendas_atual['ValorVenda'].sum()
@@ -92,7 +132,6 @@ if not df_filtrado.empty and mes_anterior is not None:
     with col3: card("Faturamento (R$)", f"R$ {soma_faturamento:,.2f}".replace('.', ','))
     with col4: card("Ticket Médio (R$)", f"R$ {ticket_medio:,.2f}".replace('.', ','))
 
-    # === GESTOR
     st.subheader("📌 Desempenho por Gestor")
     meta = 150
     por_gestor = vendas_atual.groupby('Gestor').agg(
@@ -110,7 +149,6 @@ if not df_filtrado.empty and mes_anterior is not None:
         'Projeção': '{:.0f}'
     }).set_properties(**{'text-align': 'center'}), use_container_width=True)
 
-    # === GRÁFICO TOP 10
     st.subheader("📊 Top 10 Cooperativas (Projeção)")
     top10 = base.head(10)
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -127,7 +165,6 @@ if not df_filtrado.empty and mes_anterior is not None:
                     ha='center', va='bottom', fontsize=8)
     st.pyplot(fig)
 
-    # === TABELA GERAL
     st.subheader("📋 Comparativo por Cooperativa")
     st.dataframe(
         base[['Cooperativa', 'TotalAtual', 'TotalAnterior', 'Projecao', 'Variação (%)', 'Status']]
@@ -140,7 +177,6 @@ if not df_filtrado.empty and mes_anterior is not None:
         use_container_width=True
     )
 
-    # === DESTAQUES
     positivos = base[base['Variação (%)'] > 0].sort_values(by='Variação (%)', ascending=False)
     negativos = base[base['Variação (%)'] < 0].sort_values(by='Variação (%)', ascending=True)
 
@@ -165,6 +201,5 @@ if not df_filtrado.empty and mes_anterior is not None:
         }).set_properties(**{'text-align': 'center'}),
         use_container_width=True
     )
-
 else:
     st.warning("A base precisa conter pelo menos 2 meses distintos.")
