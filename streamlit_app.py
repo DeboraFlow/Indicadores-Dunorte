@@ -20,21 +20,27 @@ with st.sidebar:
         st.warning("A data final não pode ser maior que hoje.")
         st.stop()
 
-    # Leitura com codificação correta
+    # Leitura com correção de encoding
     vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="latin1")
     cotacoes = pd.read_excel("COTACOES.xlsx")
 
-    # Converte datas
-    vendas['Data Cadastramento'] = pd.to_datetime(vendas['Data Cadastramento'], dayfirst=True, errors='coerce')
+    # Limpeza de colunas
+    vendas.columns = [col.strip() for col in vendas.columns]
+    cotacoes.columns = [col.strip() for col in cotacoes.columns]
+
+    # Conversão de datas
+    vendas['Data Cadastro'] = pd.to_datetime(vendas['Data Cadastro'], dayfirst=True, errors='coerce')
     cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
 
-    # Filtros por período
-    vendas = vendas[(vendas['Data Cadastramento'] >= data_inicial) & (vendas['Data Cadastramento'] <= data_final)]
+    # Filtros de período
+    vendas = vendas[(vendas['Data Cadastro'] >= data_inicial) & (vendas['Data Cadastro'] <= data_final)]
     cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
     # Filtro por GESTOR
     if 'GESTOR' in vendas.columns:
+        vendas['GESTOR'] = vendas['GESTOR'].astype(str).str.strip()
         gestores = vendas['GESTOR'].dropna().unique().tolist()
+        gestores = [g for g in gestores if g != '']
         gestores.sort()
         gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
 
@@ -45,7 +51,7 @@ with st.sidebar:
     else:
         st.warning("⚠️ A coluna 'GESTOR' não foi encontrada na base.")
 
-# Projeção com base em 20 dias úteis
+# Projeção (20 dias úteis)
 dias_uteis = 20
 dias_passados = (datetime.now().date() - data_inicial).days
 dias_passados = min(dias_passados, dias_uteis)
@@ -84,17 +90,19 @@ st.dataframe(tabela.style.format({
     'Projeção': 'R$ {:,.2f}'
 }, decimal=',', thousands='.'), use_container_width=True)
 
-# Gráfico Top 10 cooperativas
+# Gráfico top 10 cooperativas
 top10 = tabela.sort_values(by='Projeção', ascending=False).head(10)
 fig = px.bar(top10, x='Cooperativa', y='Projeção', title='Top 10 Cooperativas por Projeção')
 st.plotly_chart(fig, use_container_width=True)
 
 # Destaques
 st.subheader("🔍 Destaques")
+
 melhores = tabela.sort_values(by='Projeção', ascending=False).head(5)
 piores = tabela[tabela['% Meta'].str.replace('%', '').astype(int) < 0].sort_values(by='% Meta').head(5)
 
 col_melhores, col_piores = st.columns(2)
+
 with col_melhores:
     st.markdown("✅ **Cooperativas com melhor desempenho**")
     st.dataframe(melhores[['Cooperativa', 'Projeção', 'Faturamento', 'Ticket Médio']], use_container_width=True)
