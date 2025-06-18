@@ -39,7 +39,9 @@ cotacoes = cotacoes.dropna(subset=['Data'])
 
 # === FILTRO POR DATA ===
 hoje = pd.to_datetime("today")
-data_final = min(data_final, hoje)
+if data_final > hoje:
+    data_final = hoje
+
 df = df[(df['DataVenda'] >= pd.to_datetime(data_inicial)) & (df['DataVenda'] <= pd.to_datetime(data_final))]
 cotacoes = cotacoes[(cotacoes['Data'] >= pd.to_datetime(data_inicial)) & (cotacoes['Data'] <= pd.to_datetime(data_final))]
 
