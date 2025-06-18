@@ -22,30 +22,30 @@ with st.sidebar:
         st.warning("A data final não pode ser maior que hoje.")
         st.stop()
 
-    # Leitura dos dados
-    vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="utf-8")
-    cotacoes = pd.read_excel("COTACOES.xlsx")
+    # Leitura da base de vendas (com codificação corrigida)
+vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="latin1")
+cotacoes = pd.read_excel("COTACOES.xlsx")
 
-    # Tratamento de datas
-    vendas['Data Venda'] = pd.to_datetime(vendas['Data Venda'], dayfirst=True, errors='coerce')
-    cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
+# Garantir datas no formato datetime
+vendas['Data Venda'] = pd.to_datetime(vendas['Data Venda'], dayfirst=True, errors='coerce')
+cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
 
-    # Filtro de período
-    vendas = vendas[(vendas['Data Venda'] >= data_inicial) & (vendas['Data Venda'] <= data_final)]
-    cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
+# Filtro por período
+vendas = vendas[(vendas['Data Venda'] >= data_inicial) & (vendas['Data Venda'] <= data_final)]
+cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
-    # Filtro por gestor
-    if 'Gestor' in vendas.columns:
-        gestores = vendas['Gestor'].dropna().unique().tolist()
-        gestores.sort()
-        gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
+# Filtro por gestor com o nome correto da coluna
+if 'GESTOR' in vendas.columns:
+    gestores = vendas['GESTOR'].dropna().unique().tolist()
+    gestores.sort()
+    gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
 
-        if gestor_selecionado != "Todos":
-            vendas = vendas[vendas['Gestor'] == gestor_selecionado]
-            if 'Gestor' in cotacoes.columns:
-                cotacoes = cotacoes[cotacoes['Gestor'] == gestor_selecionado]
-    else:
-        st.warning("⚠️ A coluna 'Gestor' não foi encontrada na base.")
+    if gestor_selecionado != "Todos":
+        vendas = vendas[vendas['GESTOR'] == gestor_selecionado]
+        if 'GESTOR' in cotacoes.columns:
+            cotacoes = cotacoes[cotacoes['GESTOR'] == gestor_selecionado]
+else:
+    st.warning("⚠️ A coluna 'GESTOR' não foi encontrada na base.")
 
 # Dias úteis no mês de junho (excluindo feriado 19)
 dias_uteis = 20
