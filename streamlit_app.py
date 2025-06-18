@@ -1,16 +1,15 @@
-
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import plotly.express as px
+from datetime import datetime
 
 # Configurações da página
 st.set_page_config(layout="wide")
 st.markdown("<h1 style='text-align: center;'>📊 Painel Comercial - Dunorte</h1>", unsafe_allow_html=True)
 
-# Filtro lateral
+# Filtro lateral com logo e período
 with st.sidebar:
-    st.image("logo_dunorte.png", use_column_width=True)
+    st.image("logo_alfa-protecao-veicular_Bs4CuH.png", use_container_width=True)
     st.markdown("## 🗓️ Filtro por Gestor e Período")
 
     data_inicial = st.date_input("Início", value=datetime(2025, 6, 1))
@@ -23,15 +22,16 @@ with st.sidebar:
         st.warning("A data final não pode ser maior que hoje.")
         st.stop()
 
-    # Carrega as bases
+    # Leitura dos dados
     vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="utf-8")
     cotacoes = pd.read_excel("COTACOES.xlsx")
 
     # Tratamento de datas
     vendas['Data Venda'] = pd.to_datetime(vendas['Data Venda'], dayfirst=True, errors='coerce')
-    vendas = vendas[(vendas['Data Venda'] >= data_inicial) & (vendas['Data Venda'] <= data_final)]
-
     cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
+
+    # Filtro de período
+    vendas = vendas[(vendas['Data Venda'] >= data_inicial) & (vendas['Data Venda'] <= data_final)]
     cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
     # Filtro por gestor
@@ -42,17 +42,18 @@ with st.sidebar:
 
         if gestor_selecionado != "Todos":
             vendas = vendas[vendas['Gestor'] == gestor_selecionado]
-            cotacoes = cotacoes[cotacoes['Gestor'] == gestor_selecionado] if 'Gestor' in cotacoes.columns else cotacoes
+            if 'Gestor' in cotacoes.columns:
+                cotacoes = cotacoes[cotacoes['Gestor'] == gestor_selecionado]
     else:
-        st.warning("⚠️ Coluna 'Gestor' não encontrada na base de vendas.")
+        st.warning("⚠️ A coluna 'Gestor' não foi encontrada na base.")
 
-# === CÁLCULOS === #
-# Dias úteis no mês de junho (sem feriado 19)
+# Dias úteis no mês de junho (excluindo feriado 19)
 dias_uteis = 20
 dias_passados = (datetime.now().date() - data_inicial).days
 dias_passados = min(dias_passados, dias_uteis)
 fator_projecao = dias_uteis / dias_passados if dias_passados > 0 else 1
 
+# Adiciona projeção
 vendas['Projecao'] = vendas['Valor Adesão'] * fator_projecao
 
 # === CARTÕES === #
@@ -77,7 +78,7 @@ tabela = vendas.groupby('Cooperativa').agg({
 }).reset_index()
 
 tabela.columns = ['Cooperativa', 'Qtd Vendas', 'Faturamento', 'Ticket Médio', 'Projeção']
-tabela['% Meta'] = ((tabela['Projecao'] - tabela['Faturamento']) / tabela['Faturamento']) * 100
+tabela['% Meta'] = ((tabela['Projeção'] - tabela['Faturamento']) / tabela['Faturamento']) * 100
 tabela['% Meta'] = tabela['% Meta'].fillna(0).astype(float).round(0).astype(int).astype(str) + '%'
 
 st.dataframe(tabela.style.format({
