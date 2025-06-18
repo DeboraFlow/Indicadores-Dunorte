@@ -66,8 +66,8 @@ col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 col1.metric("📦 Total de Vendas", vendas.shape[0])
 col2.metric("📈 Projeção", f"R$ {vendas['Projecao'].sum():,.2f}".replace(".", ","))
 col3.metric("📋 Cotações Realizadas", cotacoes.shape[0])
-col4.metric("✅ Vendas Fechadas", cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0])
-percentual_conv = (cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0] / cotacoes.shape[0]) * 100 if cotacoes.shape[0] > 0 else 0
+col4.metric("✅ Vendas Fechadas", cotacoes[cotacoes['Situacao'] == "Venda Concretizada"].shape[0])
+percentual_conv = (cotacoes[cotacoes['Situacao'] == "Venda Concretizada"].shape[0] / cotacoes.shape[0]) * 100 if cotacoes.shape[0] > 0 else 0
 col5.metric("🎯 % Conversão", f"{percentual_conv:.0f}%")
 col6.metric("💰 Faturamento", f"R$ {vendas['Valor Produtos + Taxa Adm.'].sum():,.2f}".replace(".", ","))
 ticket_medio = vendas['Valor Produtos + Taxa Adm.'].mean() if not vendas.empty else 0
