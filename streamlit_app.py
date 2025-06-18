@@ -51,7 +51,7 @@ if gestor_selecionado != 'Todos':
 # === CÁLCULOS ===
 dias_uteis_mes = 20
 hoje = pd.to_datetime("today").normalize()
-dias_trabalhados = np.busday_count(np.datetime64(data_inicial.date()), np.datetime64(min(hoje, data_final).date()))
+dias_trabalhados = np.busday_count(np.datetime64(data_inicial), np.datetime64(min(hoje, data_final)))
 fator_projecao = dias_uteis_mes / max(dias_trabalhados, 1)
 
 total_vendas = len(df)
