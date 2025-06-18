@@ -5,25 +5,21 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Painel Comercial - Dunorte", layout="wide")
-
 st.image("logo_alfa-protecao-veicular_Bs4CuH.png", width=150)
 st.markdown("<h1 style='margin-top: -10px;'>📊 Painel Comercial - Dunorte</h1>", unsafe_allow_html=True)
 
 # === IMPORTAÇÃO DAS BASES ===
 df = pd.read_csv("VENDAS.csv", encoding="latin1", sep=";")
 df.columns = df.columns.str.strip()
-
 df.rename(columns={
     'Data Cadastro': 'DataVenda',
     'Valor Produtos + Taxa Adm.': 'ValorVenda',
     'Cooperativa': 'Cooperativa',
     'Gestor': 'Gestor'
 }, inplace=True)
-
 df['DataVenda'] = pd.to_datetime(df['DataVenda'], dayfirst=True, errors='coerce')
 df = df.dropna(subset=['DataVenda'])
 df['Mes'] = df['DataVenda'].dt.to_period("M")
-
 df['ValorVenda'] = (
     df['ValorVenda'].astype(str)
     .str.replace('R$', '', regex=False)
@@ -34,110 +30,112 @@ df['ValorVenda'] = (
 )
 
 cotacoes = pd.read_excel("COTACOES.xlsx", header=0)
-cotacoes['Data'] = pd.to_datetime(cotacoes.iloc[:, 0], dayfirst=True, errors='coerce')
+cotacoes.columns = cotacoes.columns.str.strip()
+cotacoes['DataCotacao'] = pd.to_datetime(cotacoes.iloc[:, 0], dayfirst=True, errors='coerce')
+cotacoes['Mes'] = cotacoes['DataCotacao'].dt.to_period("M")
 cotacoes['Cooperativa'] = cotacoes.iloc[:, 41]  # coluna AP
 cotacoes['Situacao'] = cotacoes.iloc[:, 49]     # coluna AX
 
-# === FILTROS ===
-df['Mes_str'] = df['Mes'].astype(str)
-meses_disponiveis = sorted(df['Mes_str'].unique())
-mes_selecionado = st.selectbox("📅 Selecione o mês", meses_disponiveis, index=len(meses_disponiveis)-1)
-gestores_disponiveis = ['Todos'] + sorted(df['Gestor'].dropna().unique().tolist())
-gestor_selecionado = st.selectbox("🧑‍💼 Filtrar por Gestor", gestores_disponiveis)
+# === FILTROS INTERATIVOS ===
+meses_disponiveis = sorted(df['Mes'].astype(str).unique())
+mes_selecionado = st.selectbox("🧑‍💼 Filtrar por Gestor", ['Todos'] + sorted(df['Gestor'].dropna().unique().tolist()))
+mes_atual = str(max(df['Mes']))
+mes_anterior = str(sorted(df['Mes'].unique())[-2]) if len(df['Mes'].unique()) > 1 else None
 
-df_filtrado = df[df['Mes_str'] == mes_selecionado]
-if gestor_selecionado != 'Todos':
-    df_filtrado = df_filtrado[df_filtrado['Gestor'] == gestor_selecionado]
+df_filtrado = df[df['Mes'].astype(str) == mes_atual]
+cotacoes_filtrado = cotacoes[cotacoes['Mes'].astype(str) == mes_atual]
 
-# === COTAÇÕES ===
-cotacoes_mes = cotacoes[cotacoes['Data'].dt.to_period("M").astype(str) == mes_selecionado]
-cotacoes_total = cotacoes_mes.groupby('Cooperativa').size().reset_index(name='TotalCotacoes')
-vendas_cotacoes = cotacoes_mes[cotacoes_mes['Situacao'] == 'Venda Concretizada']
-vendas_por_coop = vendas_cotacoes.groupby('Cooperativa').size().reset_index(name='VendasCotacoes')
+if mes_selecionado != "Todos":
+    df_filtrado = df_filtrado[df_filtrado['Gestor'] == mes_selecionado]
 
-base_cotacao = pd.merge(cotacoes_total, vendas_por_coop, on='Cooperativa', how='left').fillna(0)
-base_cotacao['% Conversao'] = (base_cotacao['VendasCotacoes'] / base_cotacao['TotalCotacoes'] * 100).round(1)
-
-# === INDICADORES GERAIS
 dias_corridos = datetime.now().day
-dias_mes = pd.Period(mes_selecionado).days_in_month
+dias_mes = pd.Period(mes_atual).days_in_month
 fator_projecao = dias_mes / dias_corridos
 
-vendas_atual = df_filtrado
-vendas_anterior = df[df['Mes'] == pd.Period(mes_selecionado) - 1]
+# === REFERÊNCIA DOS DADOS ===
+data_min = df['DataVenda'].min().strftime('%d/%m')
+data_max = df['DataVenda'].max().strftime('%d/%m')
+st.markdown(f"📅 **Referência dos dados:** de **{data_min}** até **{data_max}**")
 
-resumo = vendas_atual.groupby('Cooperativa').agg(
-    TotalAtual=('ValorVenda', 'count'),
-    SomaAtual=('ValorVenda', 'sum')
-).reset_index()
-
-resumo_ant = vendas_anterior.groupby('Cooperativa').agg(
-    TotalAnterior=('ValorVenda', 'count')
-).reset_index()
-
-base = pd.merge(resumo, resumo_ant, on='Cooperativa', how='left').fillna(0)
-base['Projecao'] = (base['TotalAtual'] * fator_projecao).round(0).astype(int)
-base['Variação (%)'] = ((base['Projecao'] - base['TotalAnterior']) / base['TotalAnterior'].replace(0, np.nan) * 100).round(1)
-base['Status'] = base['Variação (%)'].apply(lambda x: "🟢" if x >= 0 else "🔴")
-
-# Junta com base de cotações
-final = pd.merge(base, base_cotacao, on='Cooperativa', how='left').fillna(0)
-
-# === FRASE REFERENCIAL ===
-ontem = (datetime.now() - timedelta(days=1)).strftime('%d/%m/%Y')
-st.markdown(f"<p style='font-size:14px;color:gray;'>📌 Referência dos dados: de 01/06 até {ontem}</p>", unsafe_allow_html=True)
-
-# === CARTÕES ===
-total_vendas = len(vendas_atual)
+# === MÉTRICAS COMERCIAIS GERAIS ===
+total_vendas = len(df_filtrado)
 projecao_geral = int(total_vendas * fator_projecao)
-soma_faturamento = vendas_atual['ValorVenda'].sum()
-ticket_medio = vendas_atual['ValorVenda'].mean()
-total_cotacoes = cotacoes_mes.shape[0]
-total_vendas_cot = vendas_cotacoes.shape[0]
-conversao = (total_vendas_cot / total_cotacoes * 100) if total_cotacoes else 0
+soma_faturamento = df_filtrado['ValorVenda'].sum()
+ticket_medio = df_filtrado['ValorVenda'].mean()
 
+total_cotacoes = len(cotacoes_filtrado)
+vendas_concretizadas = len(cotacoes_filtrado[cotacoes_filtrado['Situacao'].str.lower() == 'venda concretizada'])
+taxa_conversao = (vendas_concretizadas / total_cotacoes * 100) if total_cotacoes > 0 else 0
+
+# === FUNÇÃO DE CARTÃO
 def card(label, value):
-    return f"""
-    <div style='background-color:#f0f2f6;padding:15px 10px;border-radius:8px;
-                box-shadow: 1px 1px 6px rgba(0,0,0,0.1);text-align:center; min-width: 150px'>
-        <h6 style='margin-bottom:4px; font-size:14px;'>{label}</h6>
-        <h3 style='margin-top:0px; font-size:18px;'>{value}</h3>
-    </div>
-    """
+    st.markdown(f"""
+        <div style='background-color:#f0f2f6;padding:15px 10px;border-radius:10px;
+                    box-shadow:2px 2px 8px rgba(0,0,0,0.1);text-align:center;height:110px'>
+            <h5 style='margin-bottom:5px;font-size:16px'>{label}</h5>
+            <h2 style='margin-top:0px;font-size:28px'>{value}</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-cards_html = "<div style='display:flex;gap:10px;flex-wrap:wrap;'>" + "".join([
-    card("Total de Vendas", total_vendas),
-    card("Projeção", projecao_geral),
-    card("Cotações Realizadas", total_cotacoes),
-    card("Vendas Fechadas", total_vendas_cot),
-    card("% Conversão", f"{conversao:.1f}%"),
-    card("Faturamento (R$)", f"R$ {soma_faturamento:,.2f}".replace('.', ',')),
-    card("Ticket Médio (R$)", f"R$ {ticket_medio:,.2f}".replace('.', ','))
-]) + "</div>"
-st.markdown(cards_html, unsafe_allow_html=True)
+# === EXIBIR CARTÕES ===
+col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+with col1: card("Total de Vendas", total_vendas)
+with col2: card("Projeção", projecao_geral)
+with col3: card("Cotações", total_cotacoes)
+with col4: card("Vendas Fechadas", vendas_concretizadas)
+with col5: card("Conversão", f"{taxa_conversao:.1f}%")
+with col6: card("Faturamento (R$)", f"R$ {soma_faturamento:,.2f}".replace('.', ','))
+with col7: card("Ticket Médio (R$)", f"R$ {ticket_medio:,.2f}".replace('.', ','))
+
+# === TABELA DESEMPENHO POR COOPERATIVA ===
+st.subheader("📌 Desempenho por Cooperativa")
+resumo = df_filtrado.groupby('Cooperativa').agg(
+    TotalAtual=('ValorVenda', 'count'),
+    SomaAtual=('ValorVenda', 'sum'),
+    Ticket=('ValorVenda', 'mean')
+).reset_index()
+
+cotacoes_resumo = cotacoes_filtrado.groupby('Cooperativa').agg(
+    Cotas=('Situacao', 'count'),
+    VendasCota=('Situacao', lambda x: (x.str.lower() == 'venda concretizada').sum())
+).reset_index()
+
+base = pd.merge(resumo, cotacoes_resumo, on='Cooperativa', how='outer').fillna(0)
+base['Projecao'] = (base['TotalAtual'] * fator_projecao).round(0).astype(int)
+base['Conversao'] = (base['VendasCota'] / base['Cotas'].replace(0, np.nan) * 100).round(1)
+base['Status'] = base['Projecao'] - base['TotalAtual']
+base['% Conversão'] = base['Conversao'].astype(str) + '%'
 
 # === TABELA GERAL
-st.subheader("📋 Comparativo por Cooperativa")
-st.dataframe(
-    final[['Cooperativa', 'TotalAtual', 'TotalAnterior', 'Projecao', 'Variação (%)', 'TotalCotacoes', 'VendasCotacoes', '% Conversao', 'Status']]
-    .style.format({
-        'TotalAtual': '{:.0f}',
-        'TotalAnterior': '{:.0f}',
-        'Projecao': '{:.0f}',
-        'Variação (%)': '{:.1f}',
-        'TotalCotacoes': '{:.0f}',
-        'VendasCotacoes': '{:.0f}',
-        '% Conversao': '{:.1f}%'
-    }).set_properties(**{'text-align': 'center'}),
-    use_container_width=True
-)
+st.dataframe(base[['Cooperativa', 'TotalAtual', 'Projecao', 'Cotas', 'VendasCota', '% Conversão', 'SomaAtual', 'Ticket']]
+             .rename(columns={
+                 'TotalAtual': 'Vendas',
+                 'SomaAtual': 'Faturamento',
+                 'Ticket': 'Ticket Médio',
+                 'Cotas': 'Cotações',
+                 'VendasCota': 'Fechadas'
+             })
+             .style.format({
+                 'Faturamento': 'R$ {:,.2f}'.format,
+                 'Ticket Médio': 'R$ {:,.2f}'.format,
+                 'Vendas': '{:.0f}',
+                 'Projecao': '{:.0f}'
+             }).set_properties(**{'text-align': 'center'}),
+             use_container_width=True)
 
 # === DESTAQUES
-positivos = final[final['% Conversao'] >= 50].sort_values(by='% Conversao', ascending=False)
-negativos = final[final['% Conversao'] < 50].sort_values(by='% Conversao')
+st.markdown("### 🟢 Destaques Positivos")
+positivos = base[base['Status'] > 0].sort_values(by='Status', ascending=False)
+st.dataframe(positivos[['Cooperativa', 'Projecao', 'TotalAtual', 'Status']]
+             .rename(columns={'TotalAtual': 'Atual'})
+             .style.format({'Projecao': '{:.0f}', 'Atual': '{:.0f}', 'Status': '{:.0f}'})
+             .set_properties(**{'text-align': 'center'}),
+             use_container_width=True)
 
-st.markdown("### 🟢 Cooperativas com Alta Conversão")
-st.dataframe(positivos[['Cooperativa', 'TotalCotacoes', 'VendasCotacoes', '% Conversao']].style.format('{:.1f}'))
-
-st.markdown("### 🔴 Cooperativas com Baixa Conversão")
-st.dataframe(negativos[['Cooperativa', 'TotalCotacoes', 'VendasCotacoes', '% Conversao']].style.format('{:.1f}'))
+st.markdown("### 🔴 Cooperativas a Ter Atenção")
+negativos = base[base['Status'] < 0].sort_values(by='Status', ascending=True)
+st.dataframe(negativos[['Cooperativa', 'Projecao', 'TotalAtual', 'Status']]
+             .rename(columns={'TotalAtual': 'Atual'})
+             .style.format({'Projecao': '{:.0f}', 'Atual': '{:.0f}', 'Status': '{:.0f}'})
+             .set_properties(**{'text-align': 'center'}),
+             use_container_width=True)
