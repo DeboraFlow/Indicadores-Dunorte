@@ -24,23 +24,24 @@ with st.sidebar:
     vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="latin1")
     cotacoes = pd.read_excel("COTACOES.xlsx")
 
-    # Limpeza de colunas
+    # Limpeza de nomes de colunas
     vendas.columns = [col.strip() for col in vendas.columns]
     cotacoes.columns = [col.strip() for col in cotacoes.columns]
 
-    # Conversão de datas
-    vendas['Data Cadastro'] = pd.to_datetime(vendas['Data Cadastro'], dayfirst=True, errors='coerce')
-    cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
+    # Conversão segura da data
+    col_data = 'Data Cadastro'
+    vendas[col_data] = pd.to_datetime(vendas[col_data].astype(str).str.strip(), dayfirst=True, errors='coerce')
+    cotacoes['Data'] = pd.to_datetime(cotacoes['Data'].astype(str).str.strip(), dayfirst=True, errors='coerce')
 
-    # Filtros de período
-    vendas = vendas[(vendas['Data Cadastro'] >= data_inicial) & (vendas['Data Cadastro'] <= data_final)]
+    # Filtros por período
+    vendas = vendas[(vendas[col_data] >= data_inicial) & (vendas[col_data] <= data_final)]
     cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
     # Filtro por GESTOR
     if 'GESTOR' in vendas.columns:
         vendas['GESTOR'] = vendas['GESTOR'].astype(str).str.strip()
         gestores = vendas['GESTOR'].dropna().unique().tolist()
-        gestores = [g for g in gestores if g != '']
+        gestores = [g for g in gestores if g and g.upper() != 'NAN']
         gestores.sort()
         gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
 
@@ -51,7 +52,7 @@ with st.sidebar:
     else:
         st.warning("⚠️ A coluna 'GESTOR' não foi encontrada na base.")
 
-# Projeção (20 dias úteis)
+# Projeção (baseado em 20 dias úteis)
 dias_uteis = 20
 dias_passados = (datetime.now().date() - data_inicial).days
 dias_passados = min(dias_passados, dias_uteis)
@@ -110,4 +111,5 @@ with col_melhores:
 with col_piores:
     st.markdown("⚠️ **Cooperativas com atenção (queda na projeção)**")
     st.dataframe(piores[['Cooperativa', 'Projeção', 'Faturamento', 'Ticket Médio']], use_container_width=True)
+
 
