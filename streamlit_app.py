@@ -3,11 +3,9 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 
-# Configurações da página
 st.set_page_config(layout="wide")
 st.markdown("<h1 style='text-align: center;'>📊 Painel Comercial - Dunorte</h1>", unsafe_allow_html=True)
 
-# Filtro lateral com logo e período
 with st.sidebar:
     st.image("logo_alfa-protecao-veicular_Bs4CuH.png", use_container_width=True)
     st.markdown("## 🗓️ Filtro por Gestor e Período")
@@ -22,41 +20,40 @@ with st.sidebar:
         st.warning("A data final não pode ser maior que hoje.")
         st.stop()
 
-    # Leitura da base de vendas (com codificação corrigida)
-vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="latin1")
-cotacoes = pd.read_excel("COTACOES.xlsx")
+    # Leitura com codificação correta
+    vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="latin1")
+    cotacoes = pd.read_excel("COTACOES.xlsx")
 
-# Garantir datas no formato datetime
-vendas['Data Venda'] = pd.to_datetime(vendas['Data Venda'], dayfirst=True, errors='coerce')
-cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
+    # Converte datas
+    vendas['Data Cadastramento'] = pd.to_datetime(vendas['Data Cadastramento'], dayfirst=True, errors='coerce')
+    cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
 
-# Filtro por período
-vendas = vendas[(vendas['Data Venda'] >= data_inicial) & (vendas['Data Venda'] <= data_final)]
-cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
+    # Filtros por período
+    vendas = vendas[(vendas['Data Cadastramento'] >= data_inicial) & (vendas['Data Cadastramento'] <= data_final)]
+    cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
-# Filtro por gestor com o nome correto da coluna
-if 'GESTOR' in vendas.columns:
-    gestores = vendas['GESTOR'].dropna().unique().tolist()
-    gestores.sort()
-    gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
+    # Filtro por GESTOR
+    if 'GESTOR' in vendas.columns:
+        gestores = vendas['GESTOR'].dropna().unique().tolist()
+        gestores.sort()
+        gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
 
-    if gestor_selecionado != "Todos":
-        vendas = vendas[vendas['GESTOR'] == gestor_selecionado]
-        if 'GESTOR' in cotacoes.columns:
-            cotacoes = cotacoes[cotacoes['GESTOR'] == gestor_selecionado]
-else:
-    st.warning("⚠️ A coluna 'GESTOR' não foi encontrada na base.")
+        if gestor_selecionado != "Todos":
+            vendas = vendas[vendas['GESTOR'] == gestor_selecionado]
+            if 'GESTOR' in cotacoes.columns:
+                cotacoes = cotacoes[cotacoes['GESTOR'] == gestor_selecionado]
+    else:
+        st.warning("⚠️ A coluna 'GESTOR' não foi encontrada na base.")
 
-# Dias úteis no mês de junho (excluindo feriado 19)
+# Projeção com base em 20 dias úteis
 dias_uteis = 20
 dias_passados = (datetime.now().date() - data_inicial).days
 dias_passados = min(dias_passados, dias_uteis)
 fator_projecao = dias_uteis / dias_passados if dias_passados > 0 else 1
 
-# Adiciona projeção
-vendas['Projecao'] = vendas['Valor Adesão'] * fator_projecao
+vendas['Projecao'] = vendas['Valor Proposta'] * fator_projecao
 
-# === CARTÕES === #
+# Cartões principais
 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 
 col1.metric("📦 Total de Vendas", vendas.shape[0])
@@ -65,15 +62,15 @@ col3.metric("📋 Cotações Realizadas", cotacoes.shape[0])
 col4.metric("✅ Vendas Fechadas", cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0])
 percentual_conv = (cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0] / cotacoes.shape[0]) * 100 if cotacoes.shape[0] > 0 else 0
 col5.metric("🎯 % Conversão", f"{percentual_conv:.0f}%")
-col6.metric("💰 Faturamento", f"R$ {vendas['Valor Adesão'].sum():,.2f}".replace(".", ","))
-ticket_medio = vendas['Valor Adesão'].mean() if not vendas.empty else 0
+col6.metric("💰 Faturamento", f"R$ {vendas['Valor Proposta'].sum():,.2f}".replace(".", ","))
+ticket_medio = vendas['Valor Proposta'].mean() if not vendas.empty else 0
 col7.metric("🎯 Ticket Médio", f"R$ {ticket_medio:,.2f}".replace(".", ","))
 
-# === TABELA POR COOPERATIVA === #
+# Tabela por cooperativa
 st.subheader("📊 Cooperativas – Detalhamento")
 
 tabela = vendas.groupby('Cooperativa').agg({
-    'Valor Adesão': ['count', 'sum', 'mean'],
+    'Valor Proposta': ['count', 'sum', 'mean'],
     'Projecao': 'sum'
 }).reset_index()
 
@@ -87,14 +84,13 @@ st.dataframe(tabela.style.format({
     'Projeção': 'R$ {:,.2f}'
 }, decimal=',', thousands='.'), use_container_width=True)
 
-# === GRÁFICO TOP 10 COOPERATIVAS POR PROJEÇÃO === #
+# Gráfico Top 10 cooperativas
 top10 = tabela.sort_values(by='Projeção', ascending=False).head(10)
 fig = px.bar(top10, x='Cooperativa', y='Projeção', title='Top 10 Cooperativas por Projeção')
 st.plotly_chart(fig, use_container_width=True)
 
-# === DESTAQUES === #
+# Destaques
 st.subheader("🔍 Destaques")
-
 melhores = tabela.sort_values(by='Projeção', ascending=False).head(5)
 piores = tabela[tabela['% Meta'].str.replace('%', '').astype(int) < 0].sort_values(by='% Meta').head(5)
 
