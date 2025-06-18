@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -23,14 +24,13 @@ with st.sidebar:
     vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="latin1")
     cotacoes = pd.read_excel("COTACOES.xlsx")
 
-    # Limpeza de colunas
     vendas.columns = [col.strip() for col in vendas.columns]
     cotacoes.columns = [col.strip() for col in cotacoes.columns]
 
-    # Conversão da data de cadastro
+    # Corrigir data de cadastro
     vendas['Data Cadastro'] = pd.to_datetime(
         vendas['Data Cadastro'].astype(str).str.strip(),
-        format='%d/%m/%Y',
+        format="%d/%m/%Y",
         errors='coerce'
     )
     vendas = vendas[vendas['Data Cadastro'].notna()]
@@ -41,11 +41,9 @@ with st.sidebar:
         errors='coerce'
     )
 
-    # Filtro por período
     vendas = vendas[(vendas['Data Cadastro'] >= data_inicial) & (vendas['Data Cadastro'] <= data_final)]
     cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
-    # Filtro por GESTOR
     if 'GESTOR' in vendas.columns:
         vendas['GESTOR'] = vendas['GESTOR'].astype(str).str.strip()
         gestores = [g for g in vendas['GESTOR'].dropna().unique().tolist() if g and g.upper() != 'NAN']
@@ -59,14 +57,16 @@ with st.sidebar:
     else:
         st.warning("⚠️ A coluna 'GESTOR' não foi encontrada na base.")
 
-# Projeção
 dias_uteis = 20
 dias_passados = (datetime.now().date() - data_inicial).days
 dias_passados = min(dias_passados, dias_uteis)
 fator_projecao = dias_uteis / dias_passados if dias_passados > 0 else 1
-vendas['Projecao'] = vendas['Valor Proposta'] * fator_projecao
 
-# Cartões
+vendas['Valor Produtos + Taxa Adm.'] = vendas['Valor Produtos + Taxa Adm.'].astype(str).str.replace(",", ".").str.replace("R$", "").str.strip()
+vendas['Valor Produtos + Taxa Adm.'] = pd.to_numeric(vendas['Valor Produtos + Taxa Adm.'], errors='coerce')
+
+vendas['Projecao'] = vendas['Valor Produtos + Taxa Adm.'] * fator_projecao
+
 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 col1.metric("📦 Total de Vendas", vendas.shape[0])
 col2.metric("📈 Projeção", f"R$ {vendas['Projecao'].sum():,.2f}".replace(".", ","))
@@ -74,16 +74,16 @@ col3.metric("📋 Cotações Realizadas", cotacoes.shape[0])
 col4.metric("✅ Vendas Fechadas", cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0])
 percentual_conv = (cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0] / cotacoes.shape[0]) * 100 if cotacoes.shape[0] > 0 else 0
 col5.metric("🎯 % Conversão", f"{percentual_conv:.0f}%")
-col6.metric("💰 Faturamento", f"R$ {vendas['Valor Proposta'].sum():,.2f}".replace(".", ","))
-ticket_medio = vendas['Valor Proposta'].mean() if not vendas.empty else 0
+col6.metric("💰 Faturamento", f"R$ {vendas['Valor Produtos + Taxa Adm.'].sum():,.2f}".replace(".", ","))
+ticket_medio = vendas['Valor Produtos + Taxa Adm.'].mean() if not vendas.empty else 0
 col7.metric("🎯 Ticket Médio", f"R$ {ticket_medio:,.2f}".replace(".", ","))
 
-# Tabela por cooperativa
 st.subheader("📊 Cooperativas – Detalhamento")
 tabela = vendas.groupby('Cooperativa').agg({
-    'Valor Proposta': ['count', 'sum', 'mean'],
+    'Valor Produtos + Taxa Adm.': ['count', 'sum', 'mean'],
     'Projecao': 'sum'
 }).reset_index()
+
 tabela.columns = ['Cooperativa', 'Qtd Vendas', 'Faturamento', 'Ticket Médio', 'Projeção']
 tabela['% Meta'] = ((tabela['Projeção'] - tabela['Faturamento']) / tabela['Faturamento']) * 100
 tabela['% Meta'] = tabela['% Meta'].fillna(0).astype(float).round(0).astype(int).astype(str) + '%'
@@ -94,12 +94,10 @@ st.dataframe(tabela.style.format({
     'Projeção': 'R$ {:,.2f}'
 }, decimal=',', thousands='.'), use_container_width=True)
 
-# Gráfico top 10
 top10 = tabela.sort_values(by='Projeção', ascending=False).head(10)
 fig = px.bar(top10, x='Cooperativa', y='Projeção', title='Top 10 Cooperativas por Projeção')
 st.plotly_chart(fig, use_container_width=True)
 
-# Destaques
 st.subheader("🔍 Destaques")
 melhores = tabela.sort_values(by='Projeção', ascending=False).head(5)
 piores = tabela[tabela['% Meta'].str.replace('%', '').astype(int) < 0].sort_values(by='% Meta').head(5)
@@ -112,5 +110,3 @@ with col_melhores:
 with col_piores:
     st.markdown("⚠️ **Cooperativas com atenção (queda na projeção)**")
     st.dataframe(piores[['Cooperativa', 'Projeção', 'Faturamento', 'Ticket Médio']], use_container_width=True)
-
-
