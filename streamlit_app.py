@@ -1,119 +1,108 @@
+
 import streamlit as st
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime, date
+from datetime import datetime
+import plotly.express as px
 
-st.set_page_config(page_title="Painel Comercial - Dunorte", layout="wide")
+# Configurações da página
+st.set_page_config(layout="wide")
+st.markdown("<h1 style='text-align: center;'>📊 Painel Comercial - Dunorte</h1>", unsafe_allow_html=True)
 
-# === LOGO E TÍTULO ===
+# Filtro lateral
 with st.sidebar:
-    st.image("logo_alfa-protecao-veicular_Bs4CuH.png", width=200)
-    st.title("📅 Filtro por Gestor e Período")
-    data_inicial = st.date_input("Início", value=pd.to_datetime("2025-06-01"))
-    data_final = st.date_input("Fim", value=pd.to_datetime("2025-06-18"))
-    gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", options=["Todos"])
+    st.image("logo_dunorte.png", use_column_width=True)
+    st.markdown("## 🗓️ Filtro por Gestor e Período")
 
-st.markdown("<h1 style='margin-top: -20px;'>📊 Painel Comercial - Dunorte</h1>", unsafe_allow_html=True)
+    data_inicial = st.date_input("Início", value=datetime(2025, 6, 1))
+    data_final = st.date_input("Fim", value=datetime(2025, 6, 18))
 
-# === IMPORTAÇÃO DOS DADOS ===
-df = pd.read_csv("VENDAS.csv", encoding="latin1", sep=";")
-cotacoes = pd.read_excel("COTACOES.xlsx", header=0)
+    hoje = pd.to_datetime(datetime.now().date())
+    data_final = pd.to_datetime(data_final)
 
-df.columns = df.columns.str.strip()
-cotacoes.columns = cotacoes.columns.str.strip()
-df.rename(columns={'Data Cadastro': 'DataVenda', 'Valor Produtos + Taxa Adm.': 'ValorVenda'}, inplace=True)
-cotacoes.rename(columns={'AP': 'Cooperativa', 'AX': 'Situacao', 'A': 'Data'}, inplace=True)
+    if data_final > hoje:
+        st.warning("A data final não pode ser maior que hoje.")
+        st.stop()
 
-df['DataVenda'] = pd.to_datetime(df['DataVenda'], dayfirst=True, errors='coerce')
-cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
-df.dropna(subset=['DataVenda'], inplace=True)
-cotacoes.dropna(subset=['Data'], inplace=True)
+    # Carrega as bases
+    vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="utf-8")
+    cotacoes = pd.read_excel("COTACOES.xlsx")
 
-# === AJUSTE LIMITE DE DATA ===
-hoje = pd.to_datetime("today")
-if data_final > hoje:
-    data_final = hoje
+    # Tratamento de datas
+    vendas['Data Venda'] = pd.to_datetime(vendas['Data Venda'], dayfirst=True, errors='coerce')
+    vendas = vendas[(vendas['Data Venda'] >= data_inicial) & (vendas['Data Venda'] <= data_final)]
 
-# === FILTROS POR DATA ===
-df = df[(df['DataVenda'] >= pd.to_datetime(data_inicial)) & (df['DataVenda'] <= pd.to_datetime(data_final))]
-cotacoes = cotacoes[(cotacoes['Data'] >= pd.to_datetime(data_inicial)) & (cotacoes['Data'] <= pd.to_datetime(data_final))]
+    cotacoes['Data'] = pd.to_datetime(cotacoes['Data'], dayfirst=True, errors='coerce')
+    cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
-# === FILTRO POR GESTOR ===
-if gestor_selecionado != "Todos" and "Gestor" in df.columns:
-    df = df[df['Gestor'].str.lower() == gestor_selecionado.lower()]
+    # Filtro por gestor
+    if 'Gestor' in vendas.columns:
+        gestores = vendas['Gestor'].dropna().unique().tolist()
+        gestores.sort()
+        gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
 
-# === VALORES ===
-df['ValorVenda'] = (
-    df['ValorVenda'].astype(str)
-    .str.replace('R$', '', regex=False)
-    .str.replace('.', '', regex=False)
-    .str.replace(',', '.', regex=False)
-    .str.strip()
-    .astype(float)
-)
+        if gestor_selecionado != "Todos":
+            vendas = vendas[vendas['Gestor'] == gestor_selecionado]
+            cotacoes = cotacoes[cotacoes['Gestor'] == gestor_selecionado] if 'Gestor' in cotacoes.columns else cotacoes
+    else:
+        st.warning("⚠️ Coluna 'Gestor' não encontrada na base de vendas.")
 
-cotacoes['Situacao'] = cotacoes['Situacao'].astype(str).str.lower().str.strip()
-cotacoes['Cooperativa'] = cotacoes['Cooperativa'].astype(str).str.strip()
+# === CÁLCULOS === #
+# Dias úteis no mês de junho (sem feriado 19)
+dias_uteis = 20
+dias_passados = (datetime.now().date() - data_inicial).days
+dias_passados = min(dias_passados, dias_uteis)
+fator_projecao = dias_uteis / dias_passados if dias_passados > 0 else 1
 
-# === PROJEÇÃO ===
-dias_uteis_mes = 20
-dias_trabalhados = len(pd.bdate_range(data_inicial, min(data_final, hoje)))
-fator_projecao = dias_uteis_mes / dias_trabalhados if dias_trabalhados else 0
+vendas['Projecao'] = vendas['Valor Adesão'] * fator_projecao
 
-# === CARTÕES ===
-total_vendas = len(df)
-projecao = int(total_vendas * fator_projecao)
-faturamento = df['ValorVenda'].sum()
-ticket = df['ValorVenda'].mean()
-
-cot_total = len(cotacoes)
-cot_fechadas = cotacoes[cotacoes['Situacao'] == 'vendas concretizadas']
-cot_fechadas_total = len(cot_fechadas)
-taxa_conv = cot_fechadas_total / cot_total if cot_total else 0
-
-def card(titulo, valor, sufixo=""):
-    st.markdown(f"""
-    <div style='background-color:#f0f2f6;padding:15px 20px;border-radius:10px;
-                box-shadow:2px 2px 8px rgba(0,0,0,0.15);text-align:center;display:flex;flex-direction:column;height:100px'>
-        <div style='font-size:13px'>{titulo}</div>
-        <div style='font-size:24px;font-weight:bold'>{valor}{sufixo}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+# === CARTÕES === #
 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-with col1: card("Total de Vendas", total_vendas)
-with col2: card("Projeção", projecao)
-with col3: card("Cotações", cot_total)
-with col4: card("Vendas Fechadas", cot_fechadas_total)
-with col5: card("Conversão", f"{taxa_conv*100:.0f}", "%")
-with col6: card("Faturamento (R$)", f"{faturamento/1000:.1f}", "k")
-with col7: card("Ticket Médio (R$)", f"{ticket:.2f}".replace('.', ','))
 
-# === TABELA DESEMPENHO ===
-vendas = df.groupby("Cooperativa").agg(
-    Vendas=('ValorVenda', 'count'),
-    Faturamento=('ValorVenda', 'sum'),
-    Ticket_Medio=('ValorVenda', 'mean')
-).reset_index()
-vendas['Projecao'] = (vendas['Vendas'] * fator_projecao).round(0).astype(int)
+col1.metric("📦 Total de Vendas", vendas.shape[0])
+col2.metric("📈 Projeção", f"R$ {vendas['Projecao'].sum():,.2f}".replace(".", ","))
+col3.metric("📋 Cotações Realizadas", cotacoes.shape[0])
+col4.metric("✅ Vendas Fechadas", cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0])
+percentual_conv = (cotacoes[cotacoes['Situação'] == "Venda Concretizada"].shape[0] / cotacoes.shape[0]) * 100 if cotacoes.shape[0] > 0 else 0
+col5.metric("🎯 % Conversão", f"{percentual_conv:.0f}%")
+col6.metric("💰 Faturamento", f"R$ {vendas['Valor Adesão'].sum():,.2f}".replace(".", ","))
+ticket_medio = vendas['Valor Adesão'].mean() if not vendas.empty else 0
+col7.metric("🎯 Ticket Médio", f"R$ {ticket_medio:,.2f}".replace(".", ","))
 
-cotacoes_coop = cotacoes.groupby("Cooperativa").agg(
-    Cotacoes=('Situacao', 'count'),
-    Fechadas=('Situacao', lambda x: (x == "vendas concretizadas").sum())
-).reset_index()
-cotacoes_coop['% Conversão'] = cotacoes_coop.apply(
-    lambda row: f"{(row['Fechadas'] / row['Cotacoes'] * 100):.0f}%" if row['Cotacoes'] else "0%", axis=1)
+# === TABELA POR COOPERATIVA === #
+st.subheader("📊 Cooperativas – Detalhamento")
 
-df_final = pd.merge(vendas, cotacoes_coop, how="outer", on="Cooperativa").fillna(0)
-df_final['Vendas'] = df_final['Vendas'].astype(int)
-df_final['Projecao'] = df_final['Projecao'].astype(int)
-df_final['Cotacoes'] = df_final['Cotacoes'].astype(int)
-df_final['Fechadas'] = df_final['Fechadas'].astype(int)
+tabela = vendas.groupby('Cooperativa').agg({
+    'Valor Adesão': ['count', 'sum', 'mean'],
+    'Projecao': 'sum'
+}).reset_index()
 
-st.markdown("### 📌 Desempenho por Cooperativa")
-st.dataframe(df_final.style.format({
-    'Faturamento': 'R$ {:,.2f}'.format,
-    'Ticket_Medio': 'R$ {:,.2f}'.format,
-}), use_container_width=True)
+tabela.columns = ['Cooperativa', 'Qtd Vendas', 'Faturamento', 'Ticket Médio', 'Projeção']
+tabela['% Meta'] = ((tabela['Projecao'] - tabela['Faturamento']) / tabela['Faturamento']) * 100
+tabela['% Meta'] = tabela['% Meta'].fillna(0).astype(float).round(0).astype(int).astype(str) + '%'
+
+st.dataframe(tabela.style.format({
+    'Faturamento': 'R$ {:,.2f}',
+    'Ticket Médio': 'R$ {:,.2f}',
+    'Projeção': 'R$ {:,.2f}'
+}, decimal=',', thousands='.'), use_container_width=True)
+
+# === GRÁFICO TOP 10 COOPERATIVAS POR PROJEÇÃO === #
+top10 = tabela.sort_values(by='Projeção', ascending=False).head(10)
+fig = px.bar(top10, x='Cooperativa', y='Projeção', title='Top 10 Cooperativas por Projeção')
+st.plotly_chart(fig, use_container_width=True)
+
+# === DESTAQUES === #
+st.subheader("🔍 Destaques")
+
+melhores = tabela.sort_values(by='Projeção', ascending=False).head(5)
+piores = tabela[tabela['% Meta'].str.replace('%', '').astype(int) < 0].sort_values(by='% Meta').head(5)
+
+col_melhores, col_piores = st.columns(2)
+with col_melhores:
+    st.markdown("✅ **Cooperativas com melhor desempenho**")
+    st.dataframe(melhores[['Cooperativa', 'Projeção', 'Faturamento', 'Ticket Médio']], use_container_width=True)
+
+with col_piores:
+    st.markdown("⚠️ **Cooperativas com atenção (queda na projeção)**")
+    st.dataframe(piores[['Cooperativa', 'Projeção', 'Faturamento', 'Ticket Médio']], use_container_width=True)
 
