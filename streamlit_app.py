@@ -20,28 +20,35 @@ with st.sidebar:
         st.warning("A data final não pode ser maior que hoje.")
         st.stop()
 
-    # Leitura com correção de encoding
     vendas = pd.read_csv("VENDAS.csv", sep=";", encoding="latin1")
     cotacoes = pd.read_excel("COTACOES.xlsx")
 
-    # Limpeza de nomes de colunas
+    # Limpeza de colunas
     vendas.columns = [col.strip() for col in vendas.columns]
     cotacoes.columns = [col.strip() for col in cotacoes.columns]
 
-    # Conversão segura da data
-    col_data = 'Data Cadastro'
-    vendas[col_data] = pd.to_datetime(vendas[col_data].astype(str).str.strip(), dayfirst=True, errors='coerce')
-    cotacoes['Data'] = pd.to_datetime(cotacoes['Data'].astype(str).str.strip(), dayfirst=True, errors='coerce')
+    # Conversão da data de cadastro
+    vendas['Data Cadastro'] = pd.to_datetime(
+        vendas['Data Cadastro'].astype(str).str.strip(),
+        format='%d/%m/%Y',
+        errors='coerce'
+    )
+    vendas = vendas[vendas['Data Cadastro'].notna()]
 
-    # Filtros por período
-    vendas = vendas[(vendas[col_data] >= data_inicial) & (vendas[col_data] <= data_final)]
+    cotacoes['Data'] = pd.to_datetime(
+        cotacoes['Data'].astype(str).str.strip(),
+        dayfirst=True,
+        errors='coerce'
+    )
+
+    # Filtro por período
+    vendas = vendas[(vendas['Data Cadastro'] >= data_inicial) & (vendas['Data Cadastro'] <= data_final)]
     cotacoes = cotacoes[(cotacoes['Data'] >= data_inicial) & (cotacoes['Data'] <= data_final)]
 
     # Filtro por GESTOR
     if 'GESTOR' in vendas.columns:
         vendas['GESTOR'] = vendas['GESTOR'].astype(str).str.strip()
-        gestores = vendas['GESTOR'].dropna().unique().tolist()
-        gestores = [g for g in gestores if g and g.upper() != 'NAN']
+        gestores = [g for g in vendas['GESTOR'].dropna().unique().tolist() if g and g.upper() != 'NAN']
         gestores.sort()
         gestor_selecionado = st.selectbox("👤 Filtrar por Gestor", ["Todos"] + gestores)
 
@@ -52,17 +59,15 @@ with st.sidebar:
     else:
         st.warning("⚠️ A coluna 'GESTOR' não foi encontrada na base.")
 
-# Projeção (baseado em 20 dias úteis)
+# Projeção
 dias_uteis = 20
 dias_passados = (datetime.now().date() - data_inicial).days
 dias_passados = min(dias_passados, dias_uteis)
 fator_projecao = dias_uteis / dias_passados if dias_passados > 0 else 1
-
 vendas['Projecao'] = vendas['Valor Proposta'] * fator_projecao
 
-# Cartões principais
+# Cartões
 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-
 col1.metric("📦 Total de Vendas", vendas.shape[0])
 col2.metric("📈 Projeção", f"R$ {vendas['Projecao'].sum():,.2f}".replace(".", ","))
 col3.metric("📋 Cotações Realizadas", cotacoes.shape[0])
@@ -75,12 +80,10 @@ col7.metric("🎯 Ticket Médio", f"R$ {ticket_medio:,.2f}".replace(".", ","))
 
 # Tabela por cooperativa
 st.subheader("📊 Cooperativas – Detalhamento")
-
 tabela = vendas.groupby('Cooperativa').agg({
     'Valor Proposta': ['count', 'sum', 'mean'],
     'Projecao': 'sum'
 }).reset_index()
-
 tabela.columns = ['Cooperativa', 'Qtd Vendas', 'Faturamento', 'Ticket Médio', 'Projeção']
 tabela['% Meta'] = ((tabela['Projeção'] - tabela['Faturamento']) / tabela['Faturamento']) * 100
 tabela['% Meta'] = tabela['% Meta'].fillna(0).astype(float).round(0).astype(int).astype(str) + '%'
@@ -91,19 +94,17 @@ st.dataframe(tabela.style.format({
     'Projeção': 'R$ {:,.2f}'
 }, decimal=',', thousands='.'), use_container_width=True)
 
-# Gráfico top 10 cooperativas
+# Gráfico top 10
 top10 = tabela.sort_values(by='Projeção', ascending=False).head(10)
 fig = px.bar(top10, x='Cooperativa', y='Projeção', title='Top 10 Cooperativas por Projeção')
 st.plotly_chart(fig, use_container_width=True)
 
 # Destaques
 st.subheader("🔍 Destaques")
-
 melhores = tabela.sort_values(by='Projeção', ascending=False).head(5)
 piores = tabela[tabela['% Meta'].str.replace('%', '').astype(int) < 0].sort_values(by='% Meta').head(5)
 
 col_melhores, col_piores = st.columns(2)
-
 with col_melhores:
     st.markdown("✅ **Cooperativas com melhor desempenho**")
     st.dataframe(melhores[['Cooperativa', 'Projeção', 'Faturamento', 'Ticket Médio']], use_container_width=True)
